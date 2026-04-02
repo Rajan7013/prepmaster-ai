@@ -1,7 +1,4 @@
 import React, { useState } from 'react';
-import { User } from 'firebase/auth';
-import { db } from '../firebase';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { Upload, FileText, CheckCircle, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -12,7 +9,7 @@ import { parseResume } from '../services/gemini';
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 interface ResumeUploadProps {
-  user: User;
+  user: any;
   onComplete: () => void;
 }
 
@@ -58,14 +55,18 @@ export default function ResumeUpload({ user, onComplete }: ResumeUploadProps) {
       setIsParsing(true);
       const resumeData = await parseResume(text);
 
-      await setDoc(doc(db, 'users', user.uid), {
+      const existingProfile = JSON.parse(localStorage.getItem(`userProfile_${user.uid}`) || '{}');
+      const updatedProfile = {
+        ...existingProfile,
         uid: user.uid,
         email: user.email,
         displayName: user.displayName,
         resumeText: text,
         resumeData: resumeData,
-        createdAt: serverTimestamp(),
-      }, { merge: true });
+        createdAt: new Date().toISOString(),
+      };
+      
+      localStorage.setItem(`userProfile_${user.uid}`, JSON.stringify(updatedProfile));
 
       setSuccess(true);
       setTimeout(onComplete, 1500);

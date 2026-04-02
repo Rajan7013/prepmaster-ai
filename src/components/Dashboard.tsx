@@ -1,7 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { User } from 'firebase/auth';
-import { db } from '../firebase';
-import { collection, query, orderBy, onSnapshot, limit } from 'firebase/firestore';
 import { 
   TrendingUp, 
   Calendar, 
@@ -37,7 +34,7 @@ import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 
 interface DashboardProps {
-  user: User;
+  user: any;
   userProfile?: any;
   setActiveTab: (tab: string) => void;
   showPerformanceOnly?: boolean;
@@ -50,22 +47,19 @@ export default function Dashboard({ user, userProfile, setActiveTab, showPerform
   const [filterType, setFilterType] = useState('all');
 
   useEffect(() => {
-    const q = query(
-      collection(db, 'users', user.uid, 'sessions'),
-      orderBy('timestamp', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const sessionData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        date: doc.data().timestamp?.toDate().toLocaleDateString() || 'N/A'
-      }));
-      setSessions(sessionData);
-      setLoading(false);
-    });
-
-    return unsubscribe;
+    // Load sessions from localStorage
+    const storedSessions = JSON.parse(localStorage.getItem(`sessions_${user.uid}`) || '[]');
+    
+    // Sort by timestamp descending
+    storedSessions.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    
+    const sessionData = storedSessions.map((doc: any) => ({
+      ...doc,
+      date: new Date(doc.timestamp).toLocaleDateString() || 'N/A'
+    }));
+    
+    setSessions(sessionData);
+    setLoading(false);
   }, [user.uid]);
 
   const exportToExcel = async () => {

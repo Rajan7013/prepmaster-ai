@@ -1,8 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User } from 'firebase/auth';
-import { db, storage } from '../firebase';
-import { doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
   Mic, 
   Video, 
@@ -21,7 +17,7 @@ import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 import { generateInterviewQuestions, analyzePerformance } from '../services/gemini';
 
 interface InterviewSessionProps {
-  user: User;
+  user: any;
   onComplete: () => void;
 }
 
@@ -99,8 +95,7 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
     setError(null);
 
     try {
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      const userData = userDoc.data();
+      const userData = JSON.parse(localStorage.getItem(`userProfile_${user.uid}`) || '{}');
       const hasProfile = userData?.resumeText || (userData?.resumeData?.skills && userData.resumeData.skills.length > 0);
       
       if (!hasProfile) {
@@ -315,13 +310,13 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
             reader.onloadend = async () => {
               const base64data = (reader.result as string).split(',')[1];
               
-              const videoStorageRef = ref(storage, `users/${user.uid}/sessions/${Date.now()}.webm`);
-              await uploadBytes(videoStorageRef, blob);
-              const url = await getDownloadURL(videoStorageRef);
+              // Instead of uploading to Firebase, we just create a local object URL for playback
+              // Note: This URL will expire when the browser is closed, but it's fine for a local-only app
+              const url = URL.createObjectURL(blob);
               resolve({url, base64: base64data});
             };
           } catch (err) {
-            console.error("Failed to upload video:", err);
+            console.error("Failed to process video:", err);
             resolve({url: null, base64: undefined});
           }
         };
@@ -346,18 +341,21 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
       }, videoBase64);
       setFinalSummary(analysis);
 
-      await addDoc(collection(db, 'users', user.uid, 'sessions'), {
+      const newSession = {
         sessionId: Date.now().toString(),
         uid: user.uid,
-        timestamp: serverTimestamp(),
+        timestamp: new Date().toISOString(),
         role: 'Software Engineer',
         questions,
         overallScore: analysis.overallScore,
         metrics: analysis.metrics,
         feedback: analysis.feedback,
         positiveQuote: analysis.positiveQuote,
-        videoUrl: uploadedVideoUrl
-      });
+        videoUrl: uploadedVideoUrl // Local blob URL
+      };
+
+      const existingSessions = JSON.parse(localStorage.getItem(`sessions_${user.uid}`) || '[]');
+      localStorage.setItem(`sessions_${user.uid}`, JSON.stringify([...existingSessions, newSession]));
 
       setStatus('completed');
     } catch (err) {

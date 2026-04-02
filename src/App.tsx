@@ -1,7 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db, signIn, signOut, handleFirestoreError, OperationType } from './firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { 
   LayoutDashboard, 
   Mic2, 
@@ -20,32 +17,51 @@ import Practice from './components/Practice';
 import Profile from './components/Profile';
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [userProfile, setUserProfile] = useState<any>(null);
 
   const fetchProfile = async (uid: string) => {
     try {
-      const userDoc = await getDoc(doc(db, 'users', uid));
-      if (userDoc.exists()) {
-        setUserProfile(userDoc.data());
+      const profile = localStorage.getItem(`userProfile_${uid}`);
+      if (profile) {
+        setUserProfile(JSON.parse(profile));
       }
     } catch (error) {
-      handleFirestoreError(error, OperationType.GET, `users/${uid}`);
+      console.error("Failed to fetch profile", error);
     }
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        await fetchProfile(currentUser.uid);
-      }
-      setLoading(false);
-    });
-    return unsubscribe;
+    // Check local storage for an existing mock user session
+    const storedUser = localStorage.getItem('mockUser');
+    if (storedUser) {
+      const parsedUser = JSON.parse(storedUser);
+      setUser(parsedUser);
+      fetchProfile(parsedUser.uid);
+    }
+    setLoading(false);
   }, []);
+
+  const signIn = () => {
+    // Create a mock user for local usage
+    const mockUser = {
+      uid: 'local-user-123',
+      displayName: 'Local User',
+      email: 'user@local.dev',
+      photoURL: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix'
+    };
+    localStorage.setItem('mockUser', JSON.stringify(mockUser));
+    setUser(mockUser);
+    fetchProfile(mockUser.uid);
+  };
+
+  const signOut = () => {
+    localStorage.removeItem('mockUser');
+    setUser(null);
+    setUserProfile(null);
+  };
 
   if (loading) {
     return (
@@ -71,13 +87,13 @@ export default function App() {
             <Mic2 className="text-white w-10 h-10" />
           </div>
           <h1 className="text-3xl font-bold text-white mb-2">PrepMaster AI</h1>
-          <p className="text-slate-400 mb-8">Master your interviews with real-time AI feedback on your voice, gestures, and content.</p>
+          <p className="text-slate-400 mb-8">Master your interviews with real-time AI feedback on your voice, gestures, and content. (Local Mode)</p>
           <button 
             onClick={signIn}
             className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-3"
           >
             <UserIcon size={20} />
-            Sign in with Google
+            Start Local Session
           </button>
         </motion.div>
       </div>

@@ -1,7 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { User } from 'firebase/auth';
-import { db, handleFirestoreError, OperationType } from '../firebase';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { 
   User as UserIcon, 
   Mail, 
@@ -19,7 +16,7 @@ import {
 import { motion } from 'motion/react';
 
 interface ProfileProps {
-  user: User;
+  user: any;
   userProfile: any;
   onUpdate: () => void;
   onReupload: () => void;
@@ -69,13 +66,15 @@ export default function Profile({ user, userProfile, onUpdate, onReupload }: Pro
           projects: formData.projects,
           certificates: formData.certificates
         },
-        updatedAt: serverTimestamp()
+        updatedAt: new Date().toISOString()
       };
-      await setDoc(doc(db, 'users', user.uid), updatedProfile, { merge: true });
+      
+      localStorage.setItem(`userProfile_${user.uid}`, JSON.stringify(updatedProfile));
+      
       setIsEditing(false);
       onUpdate();
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}`);
+      console.error("Failed to save profile", error);
     } finally {
       setIsSaving(false);
     }
