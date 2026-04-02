@@ -1,0 +1,63 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores user details and extracted resume information.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "resumeText": { "type": "string" },
+        "resumeData": { "type": "object" },
+        "targetIndustry": { "type": "string" },
+        "targetRole": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "InterviewSession": {
+      "title": "Interview Session",
+      "description": "Records of individual interview attempts.",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string" },
+        "uid": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "role": { "type": "string" },
+        "questions": { "type": "array" },
+        "overallScore": { "type": "number" },
+        "metrics": { "type": "object" },
+        "videoUrl": { "type": "string" }
+      },
+      "required": ["sessionId", "uid", "timestamp"]
+    },
+    "PerformanceMetric": {
+      "title": "Performance Metric",
+      "description": "Detailed scores for various parameters.",
+      "type": "object",
+      "properties": {
+        "subjectKnowledge": { "type": "number" },
+        "voicePitch": { "type": "number" },
+        "fumbling": { "type": "number" },
+        "stuttering": { "type": "number" },
+        "fillers": { "type": "number" },
+        "vocabulary": { "type": "number" },
+        "grammar": { "type": "number" },
+        "eyeMovement": { "type": "number" },
+        "responseTime": { "type": "number" },
+        "breathing": { "type": "number" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "UserProfile",
+      "description": "User profile document"
+    },
+    "/users/{uid}/sessions/{sessionId}": {
+      "schema": "InterviewSession",
+      "description": "Individual interview sessions for a user"
+    }
+  }
+}
