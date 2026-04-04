@@ -220,8 +220,11 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
   };
 
   const connectToGeminiLive = async () => {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return;
+    const apiKey = process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) {
+      setError("Gemini API Key is not set. Please check your environment variables.");
+      return;
+    }
 
     const ai = new GoogleGenAI({ apiKey });
     

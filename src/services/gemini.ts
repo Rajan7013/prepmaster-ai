@@ -1,8 +1,8 @@
 import { GoogleGenAI, Modality, Type, ThinkingLevel } from "@google/genai";
 
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+const apiKey = process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
 if (!apiKey) {
-  console.warn("VITE_GEMINI_API_KEY is not set. Please check your environment variables.");
+  console.warn("Gemini API Key is not set. Please check your environment variables.");
 }
 
 const ai = new GoogleGenAI({ apiKey: apiKey || "" });

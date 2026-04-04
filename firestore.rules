@@ -106,6 +106,18 @@ service cloud.firestore {
       allow delete: if isDocOwner() || isAdmin();
     }
 
+    match /practice_sessions/{sessionId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      allow update: if isDocOwner() && request.resource.data.uid == resource.data.uid;
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    // Connection test path
+    match /test/connection {
+      allow read: if true;
+    }
+
     // Default deny
     match /{path=**} {
       allow read, write: if false;

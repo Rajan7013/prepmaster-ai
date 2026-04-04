@@ -34,6 +34,21 @@
         "videoRef": { "type": "string", "description": "Reference to local IndexedDB video ID" }
       },
       "required": ["id", "uid", "date"]
+    },
+    "PracticeSession": {
+      "title": "Practice Session",
+      "description": "Stores metadata and analysis for a practice session.",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string" },
+        "uid": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "score": { "type": "number" },
+        "feedback": { "type": "string" },
+        "mode": { "type": "string" },
+        "promptText": { "type": "string" }
+      },
+      "required": ["sessionId", "uid", "timestamp"]
     }
   },
   "firestore": {
@@ -44,6 +59,14 @@
     "/sessions/{sessionId}": {
       "schema": "InterviewSession",
       "description": "Interview session data."
+    },
+    "/practice_sessions/{sessionId}": {
+      "schema": "PracticeSession",
+      "description": "Practice session data."
+    },
+    "/test/connection": {
+      "schema": "object",
+      "description": "Used for initial connection testing."
     }
   }
 }
