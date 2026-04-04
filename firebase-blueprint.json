@@ -1,0 +1,49 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores user information and preferences.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "jobTitle": { "type": "string" },
+        "experience": { "type": "string" },
+        "skills": { "type": "string" },
+        "resumeText": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "InterviewSession": {
+      "title": "Interview Session",
+      "description": "Stores metadata and analysis for an interview session.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "overallScore": { "type": "number" },
+        "summary": { "type": "string" },
+        "analysis": { "type": "object" },
+        "questions": { "type": "array", "items": { "type": "string" } },
+        "metrics": { "type": "object" },
+        "responseTime": { "type": "number" },
+        "videoRef": { "type": "string", "description": "Reference to local IndexedDB video ID" }
+      },
+      "required": ["id", "uid", "date"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "UserProfile",
+      "description": "User profile data."
+    },
+    "/sessions/{sessionId}": {
+      "schema": "InterviewSession",
+      "description": "Interview session data."
+    }
+  }
+}

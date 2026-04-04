@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
+import { saveUserProfile } from '../services/storage';
+
 interface ProfileProps {
   user: any;
   userProfile: any;
@@ -69,7 +71,7 @@ export default function Profile({ user, userProfile, onUpdate, onReupload }: Pro
         updatedAt: new Date().toISOString()
       };
       
-      localStorage.setItem(`userProfile_${user.uid}`, JSON.stringify(updatedProfile));
+      await saveUserProfile(user.uid, updatedProfile);
       
       setIsEditing(false);
       onUpdate();

@@ -1,7 +1,7 @@
 <div align="center">
   
   # 🎯 PrepMaster AI
-  **Multimodal Interview Coach**
+  **Professional Multimodal Interview Coach**
 
   [![React](https://img.shields.io/badge/React-19.0-blue.svg?style=for-the-badge&logo=react)](https://reactjs.org/)
   [![Vite](https://img.shields.io/badge/Vite-6.0-purple.svg?style=for-the-badge&logo=vite)](https://vitejs.dev/)
@@ -9,7 +9,7 @@
   [![Firebase](https://img.shields.io/badge/Firebase-12.0-FFCA28.svg?style=for-the-badge&logo=firebase)](https://firebase.google.com/)
   [![Gemini AI](https://img.shields.io/badge/Gemini_AI-Live_API-8E75B2.svg?style=for-the-badge&logo=google)](https://ai.google.dev/)
 
-  *Master your interviews with real-time AI feedback, resume parsing, and comprehensive performance analytics.*
+  *Master your interviews with real-time AI feedback, adaptive difficulty, quiz modes, and professional performance reports.*
 
 </div>
 
@@ -18,12 +18,11 @@
 ## 📖 Table of Contents
 - [Project Overview](#-project-overview)
 - [Features](#-key-features)
+- [Deployment](#-deployment)
 - [Who Benefits?](#-who-benefits)
 - [Architecture & Data Flow](#-architecture--data-flow)
 - [Tech Stack](#-tech-stack)
-- [SDLC Stages](#-sdlc-stages)
-- [Folder Structure](#-folder-structure)
-- [Getting Started (Installation)](#-getting-started)
+- [Getting Started](#-getting-started)
 - [License & Copyright](#-license--copyright)
 
 ---
@@ -44,10 +43,32 @@ To democratize interview preparation by providing a 24/7, highly intelligent, an
 ## ✨ Key Features
 - **📄 Smart Resume Parsing:** Upload a PDF/TXT or manually enter details. The AI extracts skills, projects, and experience.
 - **🤖 Multimodal AI Interviewer:** Real-time voice conversations using Gemini's Live API.
-- **⏱️ Live Metrics:** Tracks response times and simulates behavioral analysis.
+- **📈 Adaptive Difficulty:** Choose between **Basic**, **Intermediate**, and **Advanced** levels to match your experience.
+- **🧠 Topic Focus:** Specify skills or topics (e.g., "React", "System Design") for targeted practice.
+- **⏱️ Quiz Mode:** Test your quick thinking with 5-second multiple-choice questions.
+- **📥 Professional Reports:** Download enhanced PDF and Excel reports with branding, watermarks, and detailed AI analysis.
+- **👁️ Report Preview:** Preview your performance metrics before downloading the full report.
 - **📊 Performance Dashboard:** Visualizes progress over time using Recharts (Radar, Line, Area charts).
-- **📥 Exportable Reports:** Download session data as Excel (`.xlsx`) or PDF (`.pdf`) files.
 - **📱 PWA Ready:** Installable on Desktop, iOS, and Android for a native app experience.
+
+---
+
+## 🚀 Deployment
+
+PrepMaster AI is optimized for deployment on **Vercel** and **Google Cloud Run**.
+
+**Live Demo:** [https://ai-interview-coach-nine-chi.vercel.app/](https://ai-interview-coach-nine-chi.vercel.app/)
+
+### 🔒 Security & Privacy
+- **Authentication Required:** All features, including interview sessions and performance reports, require a secure Google Sign-In.
+- **Private Data:** Your interview videos and reports are strictly private. They are stored in Firebase Storage and Firestore with robust security rules that ensure only you can access your own data.
+- **Environment Variables:** All sensitive API keys and configurations are managed via environment variables, ensuring they are never exposed in the source code.
+
+### Deployment Steps (Vercel)
+1. Push your code to a GitHub repository.
+2. Connect your repository to Vercel.
+3. Add the required environment variables (see below) in the Vercel project settings.
+4. Deploy!
 
 ---
 
@@ -109,22 +130,11 @@ PrepMaster AI uses a **Serverless Architecture**. The React frontend communicate
 
 ---
 
-## 🔄 SDLC Stages
-
-1. **📝 Requirement Analysis:** Identified the need for accessible, AI-driven interview practice.
-2. **🎨 Design:** Created a dark-mode, modern UI with Tailwind CSS and Framer Motion. Designed the Firestore database schema (`users` -> `sessions`).
-3. **💻 Development:** Implemented Firebase Auth, PDF parsing, Gemini API integration, and the Recharts dashboard.
-4. **🧪 Testing:** Verified real-time audio streaming, responsive design across mobile/desktop, and PWA installation.
-5. **🚀 Deployment:** Configured for deployment on Google Cloud Run / Firebase Hosting.
-
----
-
 ## 📁 Folder Structure
 
 ```text
 prepmaster-ai/
 ├── public/                 # Static assets (PWA icons, favicon)
-│   └── icon.svg
 ├── src/
 │   ├── components/         # React UI Components
 │   │   ├── Dashboard.tsx   # Analytics and charts
@@ -132,16 +142,20 @@ prepmaster-ai/
 │   │   ├── Profile.tsx     # User settings & manual entry
 │   │   └── ResumeUpload.tsx# PDF parsing logic
 │   ├── services/           # External API logic
-│   │   └── gemini.ts       # Gemini AI prompts and config
+│   │   ├── gemini.ts       # Gemini AI prompts and config
+│   │   └── reports.ts      # PDF/Excel generation logic
 │   ├── App.tsx             # Main layout and routing
 │   ├── firebase.ts         # Firebase initialization & error handling
 │   ├── index.css           # Tailwind directives & global styles
 │   └── main.tsx            # React entry point & PWA registration
 ├── .env.example            # Environment variables template
+├── firestore.rules         # Firestore security rules
+├── storage.rules           # Firebase Storage security rules
 ├── index.html              # HTML template
 ├── package.json            # Dependencies and scripts
 ├── tailwind.config.js      # Tailwind configuration
-└── vite.config.ts          # Vite & PWA configuration
+├── vite.config.ts          # Vite & PWA configuration
+└── README.md               # Documentation
 ```
 
 ---
@@ -168,21 +182,21 @@ npm install
 ```
 
 ### 4. Environment Variables
-Create a `.env` file in the root directory and add your keys:
+Create a `.env` file in the root directory and add your keys. You can use the Gemini API key provided by the user: `AIzaSyCCHXu4H-kIB731-IYTxKbD536I3djRHDc`.
 
 ```env
 # Google Gemini API Key
-GEMINI_API_KEY=your_gemini_api_key_here
+VITE_GEMINI_API_KEY=AIzaSyCCHXu4H-kIB731-IYTxKbD536I3djRHDc
 
-# Firebase Configuration (If using standard .env setup)
-VITE_FIREBASE_API_KEY=your_api_key
-VITE_FIREBASE_AUTH_DOMAIN=your_auth_domain
-VITE_FIREBASE_PROJECT_ID=your_project_id
-VITE_FIREBASE_STORAGE_BUCKET=your_storage_bucket
-VITE_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
-VITE_FIREBASE_APP_ID=your_app_id
+# Firebase Configuration
+VITE_FIREBASE_API_KEY=AIzaSyBW5PVdidbuD-fWmQtXZmo6YXsEfp-7ku4
+VITE_FIREBASE_AUTH_DOMAIN=amazing-centaur-462112-n5.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=amazing-centaur-462112-n5
+VITE_FIREBASE_STORAGE_BUCKET=amazing-centaur-462112-n5.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=468903270383
+VITE_FIREBASE_APP_ID=1:468903270383:web:8d9fb1266b7e483896c81a
+VITE_FIREBASE_FIRESTORE_DATABASE_ID=(default)
 ```
-*(Note: If the project uses `firebase-applet-config.json`, ensure that file is present in the `src/` directory).*
 
 ### 5. Run the Development Server
 ```bash
@@ -203,28 +217,6 @@ npm run preview
 **Copyright © 2026 PrepMaster AI.** All rights reserved.
 
 This project is licensed under the **MIT License**.
-
-```text
-MIT License
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
 
 <div align="center">
   <p>Built with ❤️ using React, Firebase, and Google Gemini.</p>

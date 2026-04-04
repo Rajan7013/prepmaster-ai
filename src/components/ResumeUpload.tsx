@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { parseResume } from '../services/gemini';
+import { saveUserProfile, getUserProfile } from '../services/storage';
 
 // Set worker source for pdfjs
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
@@ -55,7 +56,7 @@ export default function ResumeUpload({ user, onComplete }: ResumeUploadProps) {
       setIsParsing(true);
       const resumeData = await parseResume(text);
 
-      const existingProfile = JSON.parse(localStorage.getItem(`userProfile_${user.uid}`) || '{}');
+      const existingProfile = await getUserProfile(user.uid) || {};
       const updatedProfile = {
         ...existingProfile,
         uid: user.uid,
@@ -63,10 +64,11 @@ export default function ResumeUpload({ user, onComplete }: ResumeUploadProps) {
         displayName: user.displayName,
         resumeText: text,
         resumeData: resumeData,
-        createdAt: new Date().toISOString(),
+        createdAt: existingProfile.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       };
       
-      localStorage.setItem(`userProfile_${user.uid}`, JSON.stringify(updatedProfile));
+      await saveUserProfile(user.uid, updatedProfile);
 
       setSuccess(true);
       setTimeout(onComplete, 1500);

@@ -1,0 +1,114 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {uid}
+    // Fields:
+    //   - uid: string (required)
+    //   - displayName: string (optional)
+    //   - email: string (required, email format)
+    //   - photoURL: string (optional, url format)
+    //   - jobTitle: string (optional)
+    //   - experience: string (optional)
+    //   - skills: string (optional)
+    //   - resumeText: string (optional)
+    //   - updatedAt: string (required, date-time format)
+    //
+    // Collection: sessions
+    // Document ID: {sessionId}
+    // Fields:
+    //   - id: string (required)
+    //   - uid: string (required, matches owner)
+    //   - date: string (required, date-time format)
+    //   - overallScore: number (required)
+    //   - summary: string (required)
+    //   - analysis: map (required)
+    //   - questions: list (required)
+    //   - metrics: map (required)
+    //   - responseTime: number (required)
+    //   - videoRef: string (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' || 
+         (request.auth.token.email == "rajanprasaila@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'updatedAt']) &&
+             data.uid == request.auth.uid &&
+             isValidEmail(data.email) &&
+             isValidDateString(data.updatedAt) &&
+             data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'jobTitle', 'experience', 'skills', 'resumeText', 'updatedAt', 'role']);
+    }
+
+    function isValidSession(data) {
+      return data.keys().hasAll(['id', 'uid', 'date', 'overallScore', 'summary', 'analysis', 'questions', 'metrics', 'responseTime']) &&
+             data.uid == request.auth.uid &&
+             isValidDateString(data.date) &&
+             data.overallScore is number &&
+             data.overallScore >= 0 && data.overallScore <= 100 &&
+             data.questions is list &&
+             data.analysis is map &&
+             data.metrics is map &&
+             data.responseTime is number;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid) && isValidUser(request.resource.data) && (!('role' in request.resource.data) || isAdmin());
+      allow update: if isOwner(uid) && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /sessions/{sessionId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidSession(request.resource.data);
+      allow update: if isDocOwner() && isValidSession(request.resource.data) && request.resource.data.uid == resource.data.uid;
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

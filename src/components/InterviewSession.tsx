@@ -10,11 +10,15 @@ import {
   Eye,
   Activity,
   Volume2,
-  RefreshCw
+  RefreshCw,
+  ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 import { generateInterviewQuestions, analyzePerformance } from '../services/gemini';
+import { saveVideo, saveSession, getUserProfile } from '../services/storage';
+import { generatePDFReport, generateExcelReport } from '../services/reports';
+import { Download, FileText, Table, StopCircle as StopIcon, Timer, HelpCircle } from 'lucide-react';
 
 interface InterviewSessionProps {
   user: any;
@@ -35,14 +39,27 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
   const [finalSummary, setFinalSummary] = useState<any>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isQuizMode, setIsQuizMode] = useState(false);
+  const [quizTimer, setQuizTimer] = useState<number | null>(null);
+  const [quizOptions, setQuizOptions] = useState<string[]>([]);
+  const [interviewLevel, setInterviewLevel] = useState<'Basic' | 'Intermediate' | 'Advanced'>('Intermediate');
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
+  const [topicInput, setTopicInput] = useState('');
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const audioPlaybackContextRef = useRef<AudioContext | null>(null);
+  const audioSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const userMicSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const nextPlayTimeRef = useRef<number>(0);
   const sessionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mixedAudioDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const lastFrameTimeRef = useRef<number>(0);
+  const quizTimerIntervalRef = useRef<any>(null);
 
   const [realtimeMetrics, setRealtimeMetrics] = useState({
     eyeContact: 0,
@@ -50,6 +67,23 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
     voice: { pitch: 0, pace: 0, clarity: 0, tone: 'Neutral' },
     fillers: 0
   });
+
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+      if (audioPlaybackContextRef.current) {
+        audioPlaybackContextRef.current.close();
+      }
+      if (quizTimerIntervalRef.current) {
+        clearInterval(quizTimerIntervalRef.current);
+      }
+    };
+  }, []);
 
   const startCalibration = async () => {
     setError(null);
@@ -64,17 +98,25 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
       setCalibrationStep(1);
     } catch (err: any) {
       console.error(err);
-      if (err.name === 'NotAllowedError') {
-        setError('Camera or microphone access was denied. Please enable permissions in your browser settings and refresh.');
+      if (err.name === 'NotAllowedError' || err.message?.includes('Permission dismissed') || err.message?.includes('Permission denied')) {
+        setError('Camera or microphone access was denied or dismissed. Please enable permissions in your browser settings and refresh.');
       } else if (err.name === 'NotFoundError') {
         setError('No camera or microphone found. Please connect your devices and try again.');
       } else {
-        setError('Failed to access camera/mic. Please ensure no other app is using them.');
+        setError(err.message || 'Failed to access camera/mic. Please ensure no other app is using them.');
       }
     }
   };
 
   const nextCalibrationStep = () => {
+    // Initialize audio playback context on user gesture
+    if (!audioPlaybackContextRef.current) {
+      audioPlaybackContextRef.current = new AudioContext({ sampleRate: 24000 });
+      nextPlayTimeRef.current = audioPlaybackContextRef.current.currentTime;
+    } else if (audioPlaybackContextRef.current.state === 'suspended') {
+      audioPlaybackContextRef.current.resume();
+    }
+
     if (calibrationStep < 5) {
       setCalibrationStep(prev => prev + 1);
     } else {
@@ -107,7 +149,10 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
       const generatedQuestions = await generateInterviewQuestions(
         userData?.resumeData || {}, 
         userData?.targetRole || 'Software Engineer', 
-        userData?.targetIndustry || 'Technology'
+        userData?.targetIndustry || 'Technology',
+        interviewLevel,
+        selectedTopics,
+        isQuizMode
       );
       setQuestions(generatedQuestions);
       
@@ -123,10 +168,31 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
       setIsAnswering(false);
       setResponseTime(null);
       
-      // Start recording
-      if (streamRef.current) {
+      // Initialize audio playback context on user gesture (if not already)
+      if (!audioPlaybackContextRef.current) {
+        audioPlaybackContextRef.current = new AudioContext({ sampleRate: 24000 });
+        nextPlayTimeRef.current = audioPlaybackContextRef.current.currentTime;
+      } else if (audioPlaybackContextRef.current.state === 'suspended') {
+        audioPlaybackContextRef.current.resume();
+      }
+
+      // Start recording with mixed audio
+      if (streamRef.current && audioPlaybackContextRef.current) {
         try {
-          const mediaRecorder = new MediaRecorder(streamRef.current, { mimeType: 'video/webm' });
+          // Create a destination for mixed audio (User Mic + AI Audio)
+          mixedAudioDestinationRef.current = audioPlaybackContextRef.current.createMediaStreamDestination();
+          
+          // Connect user's microphone to the mixed destination
+          userMicSourceRef.current = audioPlaybackContextRef.current.createMediaStreamSource(streamRef.current);
+          userMicSourceRef.current.connect(mixedAudioDestinationRef.current);
+
+          // Create a combined stream (Original Video + Mixed Audio)
+          const combinedStream = new MediaStream([
+            ...streamRef.current.getVideoTracks(),
+            ...mixedAudioDestinationRef.current.stream.getAudioTracks()
+          ]);
+
+          const mediaRecorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm' });
           mediaRecorderRef.current = mediaRecorder;
           recordedChunksRef.current = [];
           
@@ -142,9 +208,13 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
       }
 
       connectToGeminiLive();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError('Failed to start interview. Please check camera/mic permissions.');
+      if (err.name === 'NotAllowedError' || err.message?.includes('Permission dismissed') || err.message?.includes('Permission denied')) {
+        setError('Camera or microphone access was denied or dismissed. Please enable permissions in your browser settings and refresh.');
+      } else {
+        setError(err.message || 'Failed to start interview. Please check camera/mic permissions.');
+      }
       setStatus('idle');
     }
   };
@@ -156,7 +226,7 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
     const ai = new GoogleGenAI({ apiKey });
     
     try {
-      const session = await ai.live.connect({
+      const sessionPromise = ai.live.connect({
         model: "gemini-3.1-flash-live-preview",
         config: {
           responseModalities: [Modality.AUDIO],
@@ -164,18 +234,92 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
           Track their eye contact, hand gestures (hands, head nods, posture), voice (pitch, pace, clarity, tone), and use of filler words. 
           Also track if the user has started answering the question (isAnswering: boolean).
           
-          CRITICAL: Every 2-3 seconds, output a hidden JSON-like tag in your response (even if you are not speaking) to update the dashboard metrics. 
-          Format: [METRICS: {"eyeContact": 0-100, "gestures": {"hands": 0-100, "head": 0-100, "posture": "Upright|Slouching|Leaning"}, "voice": {"pitch": 0-100, "pace": 0-100, "clarity": 0-100, "tone": "Confident|Nervous|Neutral"}, "fillers": count, "isAnswering": true|false}]
+          ADAPTIVE LOGIC:
+          1. Start with a friendly greeting and an easy question like "Tell me about yourself".
+          2. Based on their skills and selected topics (${selectedTopics.join(', ')}), start with ${interviewLevel} level questions.
+          3. If difficulty is Basic: Start with easy, introductory questions and basic definitions.
+          4. If difficulty is Intermediate: Ask a mix of conceptual and practical questions.
+          5. If difficulty is Advanced: Ask complex, in-depth, and challenging technical questions.
+          6. If QUIZ MODE is active: Present a question and 3 multiple-choice options (A, B, C). Tell the user they have 5 seconds.
+          
+          CRITICAL: Every 2-3 seconds, output a hidden JSON-like tag in your response to update the dashboard metrics. 
+          Format: [METRICS: {"eyeContact": 0-100, "gestures": {"hands": 0-100, "head": 0-100, "posture": "Upright|Slouching|Leaning"}, "voice": {"pitch": 0-100, "pace": 0-100, "clarity": 0-100, "tone": "Confident|Nervous|Neutral"}, "fillers": count, "isAnswering": true|false, "level": "basic|intermediate|advanced", "quiz": {"active": true|false, "options": ["A", "B", "C"], "timer": 5}}]
           
           Provide real-time feedback in a supportive way. 
-          The current question is: ${questions[currentQuestionIndex]}`,
+          IMPORTANT: You must speak out loud.`,
         },
         callbacks: {
           onopen: () => {
             console.log("Gemini Live connected");
-            startStreaming();
+            sessionPromise.then(session => {
+              sessionRef.current = session;
+              startStreaming();
+              session.sendRealtimeInput({ text: "Hello, I am ready for the interview. Please greet me and ask the first question out loud." });
+            });
           },
           onmessage: (message: LiveServerMessage) => {
+            // Handle audio output
+            const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+            if (base64Audio) {
+              if (!audioPlaybackContextRef.current) {
+                audioPlaybackContextRef.current = new AudioContext({ sampleRate: 24000 });
+                nextPlayTimeRef.current = audioPlaybackContextRef.current.currentTime;
+              }
+              
+              const binaryString = atob(base64Audio);
+              const len = binaryString.length;
+              const bytes = new Uint8Array(len);
+              for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
+              
+              // Convert PCM16 to Float32
+              const float32Data = new Float32Array(bytes.length / 2);
+              const dataView = new DataView(bytes.buffer);
+              for (let i = 0; i < float32Data.length; i++) {
+                float32Data[i] = dataView.getInt16(i * 2, true) / 32768.0;
+              }
+              
+              const audioBuffer = audioPlaybackContextRef.current.createBuffer(1, float32Data.length, 24000);
+              audioBuffer.getChannelData(0).set(float32Data);
+              
+              const source = audioPlaybackContextRef.current.createBufferSource();
+              source.buffer = audioBuffer;
+              source.connect(audioPlaybackContextRef.current.destination);
+              
+              // Also connect to the mixed destination for recording
+              if (mixedAudioDestinationRef.current) {
+                source.connect(mixedAudioDestinationRef.current);
+              }
+              
+              const currentTime = audioPlaybackContextRef.current.currentTime;
+              if (nextPlayTimeRef.current < currentTime) {
+                nextPlayTimeRef.current = currentTime;
+              }
+              source.start(nextPlayTimeRef.current);
+              nextPlayTimeRef.current += audioBuffer.duration;
+              
+              audioSourcesRef.current.push(source);
+              source.onended = () => {
+                audioSourcesRef.current = audioSourcesRef.current.filter(s => s !== source);
+              };
+            }
+
+            // Handle interruption
+            if (message.serverContent?.interrupted) {
+              audioSourcesRef.current.forEach(source => {
+                try {
+                  source.stop();
+                } catch (e) {
+                  // Ignore errors if already stopped
+                }
+              });
+              audioSourcesRef.current = [];
+              if (audioPlaybackContextRef.current) {
+                nextPlayTimeRef.current = audioPlaybackContextRef.current.currentTime;
+              }
+            }
+
             // Handle real-time feedback from Gemini
             const text = message.serverContent?.modelTurn?.parts[0]?.text;
             if (text) {
@@ -187,6 +331,20 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
                   if (newMetrics.isAnswering && !isAnswering && questionStartTime > 0) {
                     setIsAnswering(true);
                     setResponseTime((Date.now() - questionStartTime) / 1000);
+                  }
+
+                  if (newMetrics.level) {
+                    setInterviewLevel(newMetrics.level);
+                  }
+
+                  if (newMetrics.quiz) {
+                    setIsQuizMode(newMetrics.quiz.active);
+                    setQuizOptions(newMetrics.quiz.options || []);
+                    if (newMetrics.quiz.active && newMetrics.quiz.timer) {
+                      startQuizTimer(newMetrics.quiz.timer);
+                    } else if (!newMetrics.quiz.active) {
+                      stopQuizTimer();
+                    }
                   }
 
                   setRealtimeMetrics(prev => ({
@@ -205,9 +363,15 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
           }
         }
       });
-      sessionRef.current = session;
-    } catch (err) {
+      await sessionPromise;
+    } catch (err: any) {
       console.error(err);
+      if (err.message?.includes('429') || err.message?.includes('RESOURCE_EXHAUSTED')) {
+        setError("You have exceeded your Gemini API quota. Please check your plan and billing details.");
+      } else {
+        setError("Failed to connect to AI interviewer. Please try again.");
+      }
+      setStatus('idle');
     }
   };
 
@@ -234,7 +398,8 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
     };
 
     source.connect(processor);
-    processor.connect(audioContextRef.current.destination);
+    // Do NOT connect to destination to avoid user hearing their own voice
+    // processor.connect(audioContextRef.current.destination);
 
     // Video streaming (frames)
     const interval = setInterval(() => {
@@ -259,24 +424,62 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
 
   const updateMetrics = () => {
     setRealtimeMetrics({
-      pitch: Math.floor(Math.random() * 30) + 60,
       eyeContact: Math.floor(Math.random() * 20) + 70,
-      gestures: Math.floor(Math.random() * 40) + 50,
+      gestures: { 
+        hands: Math.floor(Math.random() * 40) + 50,
+        head: Math.floor(Math.random() * 20) + 30,
+        posture: 'Upright'
+      },
+      voice: { 
+        pitch: Math.floor(Math.random() * 30) + 60,
+        pace: Math.floor(Math.random() * 20) + 80,
+        clarity: Math.floor(Math.random() * 10) + 90,
+        tone: 'Confident'
+      },
       fillers: Math.floor(Math.random() * 5)
     });
   };
 
   const nextQuestion = async () => {
     if (currentQuestionIndex < questions.length - 1) {
-      setCurrentQuestionIndex(prev => prev + 1);
+      const nextIndex = currentQuestionIndex + 1;
+      setCurrentQuestionIndex(nextIndex);
       setQuestionStartTime(Date.now());
       setIsAnswering(false);
       setResponseTime(null);
       // Update Gemini context
       if (sessionRef.current) {
-        // We could send a text part to update the context
+        sessionRef.current.sendRealtimeInput({
+          text: `The user has finished answering. Please ask the next question out loud: ${questions[nextIndex]}`
+        });
       }
     } else {
+      finishInterview();
+    }
+  };
+
+  const startQuizTimer = (seconds: number) => {
+    stopQuizTimer();
+    setQuizTimer(seconds);
+    quizTimerIntervalRef.current = setInterval(() => {
+      setQuizTimer(prev => {
+        if (prev !== null && prev > 0) return prev - 1;
+        stopQuizTimer();
+        return 0;
+      });
+    }, 1000);
+  };
+
+  const stopQuizTimer = () => {
+    if (quizTimerIntervalRef.current) {
+      clearInterval(quizTimerIntervalRef.current);
+      quizTimerIntervalRef.current = null;
+    }
+    setQuizTimer(null);
+  };
+
+  const stopInterview = () => {
+    if (window.confirm("Are you sure you want to stop the interview? Your progress will be saved up to this point.")) {
       finishInterview();
     }
   };
@@ -288,6 +491,9 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
     // Stop streams
     if (audioContextRef.current) {
       audioContextRef.current.close();
+    }
+    if (audioPlaybackContextRef.current) {
+      audioPlaybackContextRef.current.close();
     }
     if (sessionRef.current) {
       sessionRef.current.close();
@@ -332,6 +538,7 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
     }
 
     try {
+      const userData = await getUserProfile(user.uid) || {};
       // Final analysis with video
       const analysis = await analyzePerformance({
         questions,
@@ -341,11 +548,12 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
       }, videoBase64);
       setFinalSummary(analysis);
 
+      const sessionId = Date.now().toString();
       const newSession = {
-        sessionId: Date.now().toString(),
+        id: sessionId,
         uid: user.uid,
         timestamp: new Date().toISOString(),
-        role: 'Software Engineer',
+        role: userData?.targetRole || 'Software Engineer',
         questions,
         overallScore: analysis.overallScore,
         metrics: analysis.metrics,
@@ -354,8 +562,12 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
         videoUrl: uploadedVideoUrl // Local blob URL
       };
 
-      const existingSessions = JSON.parse(localStorage.getItem(`sessions_${user.uid}`) || '[]');
-      localStorage.setItem(`sessions_${user.uid}`, JSON.stringify([...existingSessions, newSession]));
+      // Save to IndexedDB for persistence
+      await saveSession(newSession);
+      if (mediaRecorderRef.current && recordedChunksRef.current.length > 0) {
+        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        await saveVideo(sessionId, blob, user.uid);
+      }
 
       setStatus('completed');
     } catch (err) {
@@ -367,20 +579,116 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
   return (
     <div className="max-w-5xl mx-auto">
       {status === 'idle' && (
-        <div className="text-center py-20">
-          <div className="w-24 h-24 bg-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-2xl shadow-indigo-500/20">
-            <Mic className="text-white w-12 h-12" />
+        <div className="max-w-4xl mx-auto py-12">
+          <div className="text-center mb-12">
+            <h2 className="text-4xl font-bold text-white mb-4">Setup Your Interview</h2>
+            <p className="text-slate-400 text-lg">Customize your session to get the most relevant practice.</p>
           </div>
-          <h2 className="text-4xl font-bold text-white mb-4">Ready to start?</h2>
-          <p className="text-slate-400 text-lg mb-10 max-w-lg mx-auto">
-            We'll ask you 5 questions based on your resume. We'll start with a quick eye-tracking calibration.
-          </p>
-          <button 
-            onClick={startCalibration}
-            className="px-10 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-bold text-lg transition-all shadow-lg shadow-indigo-500/20"
-          >
-            Begin Calibration
-          </button>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
+            {/* Difficulty Selection */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-xl">
+              <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                <Activity className="text-indigo-400" size={20} />
+                Difficulty Level
+              </h3>
+              <div className="space-y-3">
+                {(['Basic', 'Intermediate', 'Advanced'] as const).map((level) => (
+                  <button
+                    key={level}
+                    onClick={() => setInterviewLevel(level)}
+                    className={`w-full px-6 py-4 rounded-2xl font-bold text-left transition-all border-2 ${
+                      interviewLevel === level 
+                        ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-lg shadow-indigo-500/10' 
+                        : 'bg-slate-800 border-transparent text-slate-400 hover:bg-slate-700'
+                    }`}
+                  >
+                    <div className="flex justify-between items-center">
+                      <span>{level}</span>
+                      {interviewLevel === level && <CheckCircle size={18} />}
+                    </div>
+                    <p className="text-xs font-medium mt-1 opacity-60">
+                      {level === 'Basic' && 'Foundational concepts and introductions.'}
+                      {level === 'Intermediate' && 'Conceptual understanding and practical scenarios.'}
+                      {level === 'Advanced' && 'In-depth technical challenges and architecture.'}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Topics Selection */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-xl">
+              <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                <HelpCircle className="text-indigo-400" size={20} />
+                Specific Topics
+              </h3>
+              <div className="space-y-4">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={topicInput}
+                    onChange={(e) => setTopicInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && topicInput.trim()) {
+                        setSelectedTopics([...selectedTopics, topicInput.trim()]);
+                        setTopicInput('');
+                      }
+                    }}
+                    placeholder="e.g. React Hooks, SQL"
+                    className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <button
+                    onClick={() => {
+                      if (topicInput.trim()) {
+                        setSelectedTopics([...selectedTopics, topicInput.trim()]);
+                        setTopicInput('');
+                      }
+                    }}
+                    className="px-4 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition-all"
+                  >
+                    Add
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {selectedTopics.map((topic, i) => (
+                    <span key={i} className="px-3 py-1 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-full text-sm font-medium flex items-center gap-2">
+                      {topic}
+                      <button onClick={() => setSelectedTopics(selectedTopics.filter((_, idx) => idx !== i))} className="hover:text-white">×</button>
+                    </span>
+                  ))}
+                  {selectedTopics.length === 0 && <p className="text-slate-500 text-sm italic">No specific topics added. We'll use your profile.</p>}
+                </div>
+
+                <div className="pt-6 border-t border-slate-800">
+                  <label className="flex items-center gap-3 cursor-pointer group">
+                    <div className="relative">
+                      <input 
+                        type="checkbox" 
+                        checked={isQuizMode}
+                        onChange={(e) => setIsQuizMode(e.target.checked)}
+                        className="sr-only"
+                      />
+                      <div className={`w-12 h-6 rounded-full transition-all ${isQuizMode ? 'bg-indigo-600' : 'bg-slate-700'}`}></div>
+                      <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-all ${isQuizMode ? 'translate-x-6' : ''}`}></div>
+                    </div>
+                    <span className="text-white font-bold group-hover:text-indigo-400 transition-colors">Enable Quiz Mode</span>
+                  </label>
+                  <p className="text-xs text-slate-500 mt-2">Multiple choice questions with a 5-second timer.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-center">
+            <button 
+              onClick={startCalibration}
+              className="px-12 py-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-bold text-xl transition-all shadow-xl shadow-indigo-500/20 flex items-center gap-4 group"
+            >
+              Start Interview Session
+              <ChevronRight className="group-hover:translate-x-1 transition-transform" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -555,18 +863,78 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
               />
               <canvas ref={canvasRef} width="320" height="240" className="hidden" />
               
-              <div className="absolute top-6 left-6 flex gap-3">
-                <div className="px-4 py-2 bg-red-500/20 backdrop-blur-md border border-red-500/30 rounded-full flex items-center gap-2">
+              <div className="absolute top-6 left-6 flex flex-col gap-3">
+                <div className="px-4 py-2 bg-red-500/20 backdrop-blur-md border border-red-500/30 rounded-full flex items-center gap-2 w-fit">
                   <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
                   <span className="text-xs font-bold text-red-400 uppercase tracking-wider">Live Analysis</span>
                 </div>
+                <div className="px-4 py-2 bg-indigo-500/20 backdrop-blur-md border border-indigo-500/30 rounded-full flex items-center gap-2 w-fit">
+                  <Activity size={14} className="text-indigo-400" />
+                  <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Level: {interviewLevel}</span>
+                </div>
               </div>
 
+              {/* Quiz Mode Overlay */}
+              <AnimatePresence>
+                {isQuizMode && (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-8"
+                  >
+                    <div className="bg-slate-900 border border-indigo-500/30 rounded-3xl p-8 max-w-md w-full shadow-2xl shadow-indigo-500/20 text-center">
+                      <div className="flex justify-center mb-6">
+                        <div className="relative w-20 h-20 flex items-center justify-center">
+                          <svg className="w-full h-full transform -rotate-90">
+                            <circle
+                              cx="40"
+                              cy="40"
+                              r="36"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                              fill="transparent"
+                              className="text-slate-800"
+                            />
+                            <circle
+                              cx="40"
+                              cy="40"
+                              r="36"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                              fill="transparent"
+                              strokeDasharray={226}
+                              strokeDashoffset={226 - (226 * (quizTimer || 0)) / 5}
+                              className="text-indigo-500 transition-all duration-1000"
+                            />
+                          </svg>
+                          <span className="absolute text-2xl font-black text-white">{quizTimer}</span>
+                        </div>
+                      </div>
+                      <h3 className="text-xl font-bold text-white mb-6 flex items-center justify-center gap-2">
+                        <Timer className="text-indigo-400" />
+                        Quick Quiz!
+                      </h3>
+                      <div className="grid grid-cols-1 gap-3">
+                        {quizOptions.map((option, idx) => (
+                          <div 
+                            key={idx}
+                            className="px-6 py-4 bg-slate-800 border border-slate-700 rounded-2xl text-white font-bold text-lg hover:bg-indigo-600 hover:border-indigo-500 transition-all cursor-pointer"
+                          >
+                            {option}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               <div className="absolute bottom-6 left-6 right-6 flex justify-between items-end">
-                <div className="space-y-2">
+                <div className="space-y-2 max-w-[70%]">
                    <div className="px-4 py-2 bg-slate-900/80 backdrop-blur-md border border-slate-700 rounded-xl">
                       <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-1">Current Question</p>
-                      <p className="text-white font-semibold">{questions[currentQuestionIndex]}</p>
+                      <p className="text-white font-semibold line-clamp-2">{questions[currentQuestionIndex] || "Please introduce yourself."}</p>
                    </div>
                 </div>
                 {responseTime !== null && (
@@ -588,11 +956,11 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
                 <Play size={20} />
               </button>
               <button 
-                onClick={finishInterview}
+                onClick={stopInterview}
                 className="px-8 py-4 bg-slate-800 hover:bg-slate-700 text-white rounded-2xl font-bold transition-all flex items-center gap-3"
               >
-                End Session
-                <StopCircle size={20} />
+                Stop Interview
+                <StopIcon size={20} className="text-red-500" />
               </button>
             </div>
           </div>
@@ -680,14 +1048,73 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
 
           {finalSummary && (
             <div className="space-y-8">
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-xl text-center">
-                <p className="text-slate-400 uppercase tracking-widest text-sm font-bold mb-2">Overall Score</p>
-                <div className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">
-                  {finalSummary.overallScore}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-2 space-y-8">
+                  <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-xl text-center">
+                    <p className="text-slate-400 uppercase tracking-widest text-sm font-bold mb-2">Overall Score</p>
+                    <div className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">
+                      {finalSummary.overallScore}
+                    </div>
+                    {finalSummary.positiveQuote && (
+                      <p className="mt-4 text-lg text-indigo-200 italic">"{finalSummary.positiveQuote}"</p>
+                    )}
+                  </div>
+
+                  {videoUrl && (
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+                      <div className="p-4 border-b border-slate-800 flex justify-between items-center">
+                        <h3 className="text-white font-bold flex items-center gap-2">
+                          <Video size={18} className="text-indigo-400" />
+                          Interview Recording
+                        </h3>
+                        <a 
+                          href={videoUrl} 
+                          download={`Interview_${Date.now()}.webm`}
+                          className="flex items-center gap-2 text-indigo-400 hover:text-indigo-300 text-sm font-bold transition-colors"
+                        >
+                          <Download size={16} />
+                          Download Video
+                        </a>
+                      </div>
+                      <video src={videoUrl} controls className="w-full aspect-video bg-black" />
+                    </div>
+                  )}
                 </div>
-                {finalSummary.positiveQuote && (
-                  <p className="mt-4 text-lg text-indigo-200 italic">"{finalSummary.positiveQuote}"</p>
-                )}
+
+                <div className="space-y-6">
+                  <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
+                    <h3 className="text-white font-bold mb-6 flex items-center gap-2">
+                      <FileText size={18} className="text-indigo-400" />
+                      Download Reports
+                    </h3>
+                    <div className="space-y-3">
+                      <button 
+                        onClick={() => generatePDFReport({ ...finalSummary, id: Date.now().toString(), timestamp: new Date().toISOString() }, user)}
+                        className="w-full px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-3"
+                      >
+                        <FileText size={18} />
+                        Download PDF
+                      </button>
+                      <button 
+                        onClick={() => generateExcelReport({ ...finalSummary, id: Date.now().toString(), timestamp: new Date().toISOString() }, user)}
+                        className="w-full px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-3 border border-slate-700"
+                      >
+                        <Table size={18} />
+                        Download Excel
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-indigo-600/10 border border-indigo-500/20 rounded-3xl p-6">
+                    <h4 className="text-indigo-400 font-bold mb-2 flex items-center gap-2">
+                      <HelpCircle size={16} />
+                      Next Steps
+                    </h4>
+                    <p className="text-sm text-slate-300 leading-relaxed">
+                      Review your fumbling and stuttering feedback to improve your delivery. Practice the STAR method for technical questions.
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

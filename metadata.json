@@ -1,5 +1,5 @@
 {
   "name": "PrepMaster AI - Multimodal Interview Coach",
   "description": "An advanced AI interview preparation platform using real-time multimodal analysis to track voice, gestures, and content performance.",
-  "requestFramePermissions": ["camera", "microphone"]
+  "requestFramePermissions": ["camera", "microphone", "geolocation"]
 }
