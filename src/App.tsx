@@ -262,14 +262,6 @@ function AppContent() {
               )}
               {isSigningIn ? 'Signing in...' : 'Sign in with Google'}
             </button>
-            <button 
-              onClick={signIn}
-              disabled={isSigningIn}
-              className="w-full py-4 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <UserIcon size={20} />
-              Continue as Guest
-            </button>
           </div>
         </motion.div>
       </div>

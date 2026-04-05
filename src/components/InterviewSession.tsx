@@ -127,6 +127,27 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
     };
   }, []);
 
+  const [analysisMessageIndex, setAnalysisMessageIndex] = useState(0);
+  const analysisMessages = [
+    "Analyzing your voice clarity and pace...",
+    "Evaluating your body language and gestures...",
+    "Reviewing your subject knowledge and content...",
+    "Detecting fumbling and stuttering instances...",
+    "Calculating your overall performance score...",
+    "Generating personalized improvement tips...",
+    "Finalizing your detailed interview report..."
+  ];
+
+  useEffect(() => {
+    let interval: any;
+    if (status === 'analyzing') {
+      interval = setInterval(() => {
+        setAnalysisMessageIndex(prev => (prev + 1) % analysisMessages.length);
+      }, 3000);
+    }
+    return () => clearInterval(interval);
+  }, [status]);
+
   const startCalibration = async () => {
     setError(null);
     try {
@@ -631,16 +652,28 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
 
     try {
       const userData = await getUserProfile(user.uid) || {};
-      // Final analysis with video
-      const analysis = await analyzePerformance({
+      
+      // Start analysis and saving concurrently
+      const analysisPromise = analyzePerformance({
         questions,
         metrics: realtimeMetrics,
         responseTime,
         timestamp: new Date().toISOString()
       }, videoBase64);
-      setFinalSummary(analysis);
 
       const sessionId = Date.now().toString();
+      
+      // Save video in background if blob exists
+      let saveVideoPromise = Promise.resolve(null);
+      if (mediaRecorderRef.current && recordedChunksRef.current.length > 0) {
+        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        saveVideoPromise = saveVideo(sessionId, blob, user.uid);
+      }
+
+      // Wait for analysis to complete
+      const analysis = await analysisPromise;
+      setFinalSummary(analysis);
+
       const newSession = {
         id: sessionId,
         uid: user.uid,
@@ -654,12 +687,12 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
         videoUrl: uploadedVideoUrl // Local blob URL
       };
 
-      // Save to IndexedDB for persistence
+      // Save session data
       await saveSession(newSession);
-      if (mediaRecorderRef.current && recordedChunksRef.current.length > 0) {
-        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-        await saveVideo(sessionId, blob, user.uid);
-      }
+      
+      // We don't strictly need to wait for saveVideoPromise to finish before showing results
+      // but we should ensure it's handled.
+      saveVideoPromise.catch(err => console.error("Background video save failed:", err));
 
       setStatus('completed');
     } catch (err) {
@@ -911,8 +944,8 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
             {status === 'preparing' 
               ? 'Connecting to AI Interviewer' 
               : isUploading 
-                ? 'Uploading interview video...' 
-                : 'Generating detailed feedback'}
+                ? 'Processing interview video...' 
+                : analysisMessages[analysisMessageIndex]}
           </p>
         </div>
       )}

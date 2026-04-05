@@ -10,12 +10,13 @@ const ai = new GoogleGenAI({ apiKey: apiKey || "" });
 export const parseResume = async (text: string) => {
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-flash-lite-preview",
       contents: `Extract the following details from this resume text: personal details, degree, projects, skills, certificates. Return as JSON.
       
       Resume Text:
       ${text}`,
       config: {
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -59,7 +60,7 @@ export const generateInterviewQuestions = async (
       : 'Return each question as a simple string.';
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-flash-lite-preview",
       contents: `Based on this resume data and the target role (${role}) in ${industry}, generate 5 relevant interview questions.
       ${difficultyStr}
       ${topicStr}
@@ -67,6 +68,7 @@ export const generateInterviewQuestions = async (
       
       Resume Data: ${JSON.stringify(resumeData)}`,
       config: {
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         responseMimeType: "application/json",
         responseSchema: isQuizMode ? {
           type: Type.ARRAY,
@@ -97,7 +99,7 @@ export const generateInterviewQuestions = async (
 export const evaluatePractice = async (audioBase64: string, mode: string, promptText: string) => {
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-flash-lite-preview",
       contents: [
         { text: `Evaluate the following audio recording for a ${mode} practice session.
         The user was supposed to ${mode === 'reading' ? 'read this text aloud' : 'speak on this topic'}: "${promptText}".
@@ -107,6 +109,7 @@ export const evaluatePractice = async (audioBase64: string, mode: string, prompt
         { inlineData: { data: audioBase64, mimeType: 'audio/webm' } }
       ],
       config: {
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -147,9 +150,10 @@ export const analyzePerformance = async (sessionData: any, videoBase64?: string)
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-flash-lite-preview",
       contents: { parts },
       config: {
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,

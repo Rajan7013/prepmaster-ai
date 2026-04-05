@@ -81,7 +81,7 @@ service cloud.firestore {
              (!('createdAt' in data) || isValidDateString(data.createdAt)) &&
              (!('skills' in data) || data.skills is list) &&
              (!('resumeData' in data) || data.resumeData is map) &&
-             data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'jobTitle', 'experience', 'skills', 'resumeText', 'resumeData', 'targetRole', 'targetIndustry', 'createdAt', 'updatedAt', 'role']);
+             data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'jobTitle', 'experience', 'skills', 'resumeText', 'resumeData', 'targetRole', 'targetIndustry', 'createdAt', 'updatedAt', 'role', 'isGuest']);
     }
 
     function isValidSession(data) {

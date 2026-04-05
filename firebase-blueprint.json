@@ -18,7 +18,8 @@
         "targetIndustry": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" },
-        "role": { "type": "string" }
+        "role": { "type": "string" },
+        "isGuest": { "type": "boolean" }
       },
       "required": ["uid", "email"]
     },
