@@ -33,6 +33,7 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
   const [calibrationStep, setCalibrationStep] = useState(0);
   const [questions, setQuestions] = useState<string[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [dynamicQuestion, setDynamicQuestion] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   
@@ -43,6 +44,7 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isQuizMode, setIsQuizMode] = useState(false);
+  const [userData, setUserData] = useState<any>(null);
   const [quizTimer, setQuizTimer] = useState<number | null>(null);
   const [quizOptions, setQuizOptions] = useState<string[]>([]);
   const [interviewLevel, setInterviewLevel] = useState<'Basic' | 'Intermediate' | 'Advanced'>('Intermediate');
@@ -137,6 +139,14 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
     "Generating personalized improvement tips...",
     "Finalizing your detailed interview report..."
   ];
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      const profile = await getUserProfile(user.uid);
+      setUserData(profile);
+    };
+    loadProfile();
+  }, [user.uid]);
 
   useEffect(() => {
     let interval: any;
@@ -315,18 +325,28 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
         model: "gemini-3.1-flash-live-preview",
         config: {
           responseModalities: [Modality.AUDIO],
-          systemInstruction: `You are a professional interviewer. You are speaking with a candidate.
-          Start with a friendly greeting and an easy question like "Tell me about yourself".
-          Based on their skills and selected topics (${selectedTopics.join(', ')}), ask ${interviewLevel} level questions.
+          outputAudioTranscription: {},
+          inputAudioTranscription: {},
+          systemInstruction: `You are a professional interviewer. You are speaking with a candidate for a ${interviewLevel} level position.
+          
+          INTERVIEW FLOW:
+          1. Start with a friendly greeting and an easy question like "Tell me about yourself".
+          2. Based on their answers, ask relevant follow-up questions to dig deeper into their experience.
+          3. Incorporate these specific topics if provided: ${selectedTopics.join(', ')}.
+          4. Maintain a professional, high-quality voice.
           
           ADAPTIVE LOGIC:
-          1. If difficulty is Basic: Start with easy, introductory questions.
-          2. If difficulty is Intermediate: Ask a mix of conceptual and practical questions.
-          3. If difficulty is Advanced: Ask complex technical questions.
-          4. If QUIZ MODE is active: Present a question and 3 options (A, B, C).
+          - If difficulty is Basic: Focus on foundational concepts and clear explanations.
+          - If difficulty is Intermediate: Ask a mix of conceptual and practical scenario-based questions.
+          - If difficulty is Advanced: Ask complex technical questions, edge cases, and architectural challenges.
+          - If QUIZ MODE is active: Present a question and 3 options (A, B, C).
           
-          IMPORTANT: Focus on the conversation. You don't need to worry about tracking metrics like eye contact or gestures, as those are being handled locally by the system.
-          You must speak out loud with your professional, high-quality voice.`,
+          DYNAMIC INTERACTION:
+          - Do NOT just read from a script. Listen to the candidate's response and ask follow-up questions like a real human interviewer would.
+          - If the candidate's answer is brief, ask them to elaborate.
+          - If they mention a specific project or skill, ask a question about it.
+          
+          IMPORTANT: You must speak out loud. Your goal is to conduct a natural, dynamic interview.`,
         },
         callbacks: {
           onopen: () => {
@@ -338,6 +358,11 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
             });
           },
           onmessage: (message: LiveServerMessage) => {
+            // Handle transcriptions
+            if (message.serverContent?.modelTurn?.parts[0]?.text) {
+              setDynamicQuestion(message.serverContent.modelTurn.parts[0].text);
+            }
+
             // Handle audio output
             const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
             if (base64Audio) {
@@ -514,6 +539,17 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
   };
 
   const nextQuestion = async () => {
+    // Stop any current AI speech
+    audioSourcesRef.current.forEach(source => {
+      try {
+        source.stop();
+      } catch (e) {}
+    });
+    audioSourcesRef.current = [];
+    if (audioPlaybackContextRef.current) {
+      nextPlayTimeRef.current = audioPlaybackContextRef.current.currentTime;
+    }
+
     if (currentQuestionIndex < questions.length - 1) {
       const nextIndex = currentQuestionIndex + 1;
       setCurrentQuestionIndex(nextIndex);
@@ -523,7 +559,7 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
       // Update Gemini context
       if (sessionRef.current) {
         sessionRef.current.sendRealtimeInput({
-          text: `The user has finished answering. Please ask the next question out loud: ${questions[nextIndex]}`
+          text: `The candidate is ready for the next part. Please ask the next question or follow up on their previous answer naturally. If you want to move to a new topic, the next suggested question is: ${questions[nextIndex]}`
         });
       }
     } else {
@@ -663,13 +699,6 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
 
       const sessionId = Date.now().toString();
       
-      // Save video in background if blob exists
-      let saveVideoPromise = Promise.resolve(null);
-      if (mediaRecorderRef.current && recordedChunksRef.current.length > 0) {
-        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-        saveVideoPromise = saveVideo(sessionId, blob, user.uid);
-      }
-
       // Wait for analysis to complete
       const analysis = await analysisPromise;
       setFinalSummary(analysis);
@@ -684,15 +713,21 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
         metrics: analysis.metrics,
         feedback: analysis.feedback,
         positiveQuote: analysis.positiveQuote,
-        videoUrl: uploadedVideoUrl // Local blob URL
+        videoUrl: null // Will be updated by saveVideo
       };
 
-      // Save session data
+      // Save session data first
       await saveSession(newSession);
       
-      // We don't strictly need to wait for saveVideoPromise to finish before showing results
-      // but we should ensure it's handled.
-      saveVideoPromise.catch(err => console.error("Background video save failed:", err));
+      // Now save video which will update the session with the real URL
+      if (mediaRecorderRef.current && recordedChunksRef.current.length > 0) {
+        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        const downloadUrl = await saveVideo(sessionId, blob, user.uid);
+        if (downloadUrl) {
+          newSession.videoUrl = downloadUrl;
+          setVideoUrl(downloadUrl);
+        }
+      }
 
       setStatus('completed');
     } catch (err) {
@@ -1035,7 +1070,7 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
                 <div className="space-y-2 max-w-[70%]">
                    <div className="px-4 py-2 bg-slate-900/80 backdrop-blur-md border border-slate-700 rounded-xl">
                       <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-1">Current Question</p>
-                      <p className="text-white font-semibold line-clamp-2">{questions[currentQuestionIndex] || "Please introduce yourself."}</p>
+                      <p className="text-white font-semibold line-clamp-2">{dynamicQuestion || questions[currentQuestionIndex] || "Please introduce yourself."}</p>
                    </div>
                 </div>
                 {responseTime !== null && (
@@ -1260,12 +1295,26 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
                 </div>
               </div>
 
-              <div className="flex justify-center mt-12">
+              <div className="flex flex-wrap justify-center gap-4 mt-12">
+                <button 
+                  onClick={() => generatePDFReport(finalSummary, userData)}
+                  className="px-6 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-bold transition-all flex items-center gap-2 shadow-lg shadow-indigo-500/20"
+                >
+                  <FileText size={18} />
+                  Download PDF
+                </button>
+                <button 
+                  onClick={() => generateExcelReport(finalSummary, userData)}
+                  className="px-6 py-4 bg-slate-800 hover:bg-slate-700 text-white rounded-2xl font-bold transition-all flex items-center gap-2 border border-slate-700"
+                >
+                  <Table size={18} className="text-green-400" />
+                  Download Excel
+                </button>
                 <button 
                   onClick={onComplete}
-                  className="px-10 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-bold text-lg transition-all shadow-lg shadow-indigo-500/20"
+                  className="px-6 py-4 bg-slate-800 hover:bg-slate-700 text-white rounded-2xl font-bold transition-all flex items-center gap-2 border border-slate-700"
                 >
-                  View Full Dashboard
+                  Go to Dashboard
                 </button>
               </div>
             </div>

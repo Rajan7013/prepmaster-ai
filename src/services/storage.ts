@@ -78,7 +78,7 @@ export async function getSessions(uid: string): Promise<any[]> {
     const q = query(
       collection(firestore, 'sessions'),
       where('uid', '==', uid),
-      orderBy('date', 'desc')
+      orderBy('timestamp', 'desc')
     );
     const querySnapshot = await getDocs(q);
     const sessions = querySnapshot.docs.map(doc => doc.data());

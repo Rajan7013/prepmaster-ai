@@ -36,6 +36,7 @@ import {
 } from 'recharts';
 import { getSessions, getVideo, deleteSession } from '../services/storage';
 import { generatePDFReport, generateExcelReport } from '../services/reports';
+import { db, collection, query, where, getDocs, orderBy } from '../firebase';
 
 interface DashboardProps {
   user: any;
@@ -80,9 +81,21 @@ export default function Dashboard({ user, userProfile, setActiveTab, showPerform
         }));
         setSessions(sessionData);
 
-        // Load practice sessions
-        const storedPracticeSessions = JSON.parse(localStorage.getItem(`practice_sessions_${user.uid}`) || '[]');
+        // Load practice sessions from Firestore
+        const qPractice = query(
+          collection(db, 'practice_sessions'),
+          where('uid', '==', user.uid),
+          orderBy('timestamp', 'desc')
+        );
+        const practiceSnapshot = await getDocs(qPractice);
+        const storedPracticeSessions = practiceSnapshot.docs.map(doc => ({
+          ...doc.data(),
+          date: new Date(doc.data().timestamp).toLocaleDateString()
+        }));
         setPracticeSessions(storedPracticeSessions);
+        
+        // Update local cache as backup
+        localStorage.setItem(`practice_sessions_${user.uid}`, JSON.stringify(storedPracticeSessions));
       } catch (error) {
         console.error("Failed to load dashboard data", error);
       } finally {
@@ -102,15 +115,17 @@ export default function Dashboard({ user, userProfile, setActiveTab, showPerform
   };
 
   const exportToExcel = async () => {
-    if (sessions.length === 0) return;
+    const sessionToExport = selectedSession || sessions[0];
+    if (!sessionToExport) return;
     const userData = JSON.parse(localStorage.getItem(`userProfile_${user.uid}`) || '{}');
-    await generateExcelReport(sessions[0], userData);
+    await generateExcelReport(sessionToExport, userData);
   };
 
   const exportToPDF = async () => {
-    if (sessions.length === 0) return;
+    const sessionToExport = selectedSession || sessions[0];
+    if (!sessionToExport) return;
     const userData = JSON.parse(localStorage.getItem(`userProfile_${user.uid}`) || '{}');
-    await generatePDFReport(sessions[0], userData);
+    await generatePDFReport(sessionToExport, userData);
   };
 
   if (loading) return null;
