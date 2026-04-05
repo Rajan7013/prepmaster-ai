@@ -138,6 +138,21 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
       if (videoRef.current) videoRef.current.srcObject = stream;
       setStatus('calibrating');
       setCalibrationStep(1);
+
+      // PRE-FETCH QUESTIONS during calibration to save time
+      const userData = JSON.parse(localStorage.getItem(`userProfile_${user.uid}`) || '{}');
+      const hasProfile = userData?.resumeText || (userData?.resumeData?.skills && userData.resumeData.skills.length > 0);
+      
+      if (hasProfile) {
+        generateInterviewQuestions(
+          userData?.resumeData || {}, 
+          userData?.targetRole || 'Software Engineer', 
+          userData?.targetIndustry || 'Technology',
+          interviewLevel,
+          selectedTopics,
+          isQuizMode
+        ).then(setQuestions).catch(err => console.error("Pre-fetch questions failed:", err));
+      }
     } catch (err: any) {
       console.error(err);
       if (err.name === 'NotAllowedError' || err.message?.includes('Permission dismissed') || err.message?.includes('Permission denied')) {
@@ -159,13 +174,13 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
       audioPlaybackContextRef.current.resume();
     }
 
-    if (calibrationStep < 5) {
+    if (calibrationStep < 3) {
       setCalibrationStep(prev => prev + 1);
     } else {
-      setCalibrationStep(6); // Special state for completion
+      setCalibrationStep(4); // Special state for completion
       setTimeout(() => {
         startInterview();
-      }, 1500);
+      }, 1000);
     }
   };
 
@@ -179,24 +194,28 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
     setError(null);
 
     try {
-      const userData = JSON.parse(localStorage.getItem(`userProfile_${user.uid}`) || '{}');
-      const hasProfile = userData?.resumeText || (userData?.resumeData?.skills && userData.resumeData.skills.length > 0);
-      
-      if (!hasProfile) {
-        setError('Please upload your resume or fill out your profile before starting an interview.');
-        setStatus('idle');
-        return;
-      }
+      // If questions aren't pre-fetched yet, wait or fetch them now
+      let currentQuestions = questions;
+      if (currentQuestions.length === 0) {
+        const userData = JSON.parse(localStorage.getItem(`userProfile_${user.uid}`) || '{}');
+        const hasProfile = userData?.resumeText || (userData?.resumeData?.skills && userData.resumeData.skills.length > 0);
+        
+        if (!hasProfile) {
+          setError('Please upload your resume or fill out your profile before starting an interview.');
+          setStatus('idle');
+          return;
+        }
 
-      const generatedQuestions = await generateInterviewQuestions(
-        userData?.resumeData || {}, 
-        userData?.targetRole || 'Software Engineer', 
-        userData?.targetIndustry || 'Technology',
-        interviewLevel,
-        selectedTopics,
-        isQuizMode
-      );
-      setQuestions(generatedQuestions);
+        currentQuestions = await generateInterviewQuestions(
+          userData?.resumeData || {}, 
+          userData?.targetRole || 'Software Engineer', 
+          userData?.targetIndustry || 'Technology',
+          interviewLevel,
+          selectedTopics,
+          isQuizMode
+        );
+        setQuestions(currentQuestions);
+      }
       
       // If stream isn't already active from calibration
       if (!streamRef.current) {
@@ -829,30 +848,6 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
                     </motion.button>
                   )}
                   {calibrationStep === 4 && (
-                    <motion.button
-                      key="dot-4"
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      exit={{ scale: 0 }}
-                      onClick={nextCalibrationStep}
-                      className="absolute bottom-8 left-8 w-12 h-12 bg-indigo-500 rounded-full shadow-lg shadow-indigo-500/50 flex items-center justify-center text-white font-bold hover:scale-110 transition-transform"
-                    >
-                      4
-                    </motion.button>
-                  )}
-                  {calibrationStep === 5 && (
-                    <motion.button
-                      key="dot-5"
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      exit={{ scale: 0 }}
-                      onClick={nextCalibrationStep}
-                      className="absolute bottom-8 right-8 w-12 h-12 bg-indigo-500 rounded-full shadow-lg shadow-indigo-500/50 flex items-center justify-center text-white font-bold hover:scale-110 transition-transform"
-                    >
-                      5
-                    </motion.button>
-                  )}
-                  {calibrationStep === 6 && (
                     <motion.div
                       key="complete"
                       initial={{ opacity: 0, y: 10 }}
@@ -869,7 +864,7 @@ export default function InterviewSession({ user, onComplete }: InterviewSessionP
 
               <div className="mt-8 flex flex-col items-center gap-6">
                 <div className="flex justify-center gap-2">
-                  {[1, 2, 3, 4, 5].map((step) => (
+                  {[1, 2, 3].map((step) => (
                     <div 
                       key={step}
                       className={`h-1.5 w-8 rounded-full transition-colors ${

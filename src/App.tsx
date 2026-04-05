@@ -16,8 +16,8 @@ import ResumeUpload from './components/ResumeUpload';
 import InterviewSession from './components/InterviewSession';
 import Practice from './components/Practice';
 import Profile from './components/Profile';
-import { auth, googleProvider, signInWithPopup, onAuthStateChanged } from './firebase';
-import { getUserProfile } from './services/storage';
+import { auth, googleProvider, signInWithPopup, onAuthStateChanged, db, onSnapshot, doc } from './firebase';
+import { getUserProfile, saveUserProfile } from './services/storage';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -85,6 +85,7 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [userProfile, setUserProfile] = useState<any>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [isSigningIn, setIsSigningIn] = useState(false);
 
   const fetchProfile = async (uid: string) => {
     try {
@@ -98,29 +99,106 @@ function AppContent() {
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    let unsubscribeProfile: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
-        fetchProfile(currentUser.uid);
+        
+        // Real-time profile listener
+        unsubscribeProfile = onSnapshot(doc(db, 'users', currentUser.uid), (snapshot) => {
+          if (snapshot.exists()) {
+            const profileData = snapshot.data();
+            setUserProfile(profileData);
+            // Update local storage as well
+            localStorage.setItem(`userProfile_${currentUser.uid}`, JSON.stringify(profileData));
+          } else {
+            // If no profile in Firestore, check local storage
+            const local = localStorage.getItem(`userProfile_${currentUser.uid}`);
+            if (local) {
+              setUserProfile(JSON.parse(local));
+            }
+          }
+        }, (error) => {
+          console.error("Profile snapshot error:", error);
+          // Fallback to one-time fetch if snapshot fails
+          fetchProfile(currentUser.uid);
+        });
       } else {
         setUser(null);
         setUserProfile(null);
+        if (unsubscribeProfile) {
+          unsubscribeProfile();
+          unsubscribeProfile = null;
+        }
       }
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeProfile) unsubscribeProfile();
+    };
   }, []);
 
   const signIn = async () => {
+    if (isSigningIn) return;
     setAuthError(null);
+    setIsSigningIn(true);
     try {
       const result = await signInWithPopup(auth, googleProvider);
       setUser(result.user);
-      fetchProfile(result.user.uid);
+      
+      // Check if profile exists, if not create one with Google info
+      const profile = await getUserProfile(result.user.uid);
+      if (!profile) {
+        const newProfile = {
+          displayName: result.user.displayName,
+          email: result.user.email,
+          photoURL: result.user.photoURL,
+          uid: result.user.uid,
+          createdAt: new Date().toISOString()
+        };
+        await saveUserProfile(result.user.uid, newProfile);
+        setUserProfile(newProfile);
+      } else {
+        // Update existing profile with latest Google info if missing
+        const updatedProfile = {
+          ...profile,
+          displayName: profile.displayName || result.user.displayName,
+          photoURL: profile.photoURL || result.user.photoURL,
+          email: profile.email || result.user.email,
+        };
+        if (JSON.stringify(updatedProfile) !== JSON.stringify(profile)) {
+          await saveUserProfile(result.user.uid, updatedProfile);
+          setUserProfile(updatedProfile);
+        } else {
+          setUserProfile(profile);
+        }
+      }
     } catch (error: any) {
       console.error("Sign in failed", error);
+      
+      // Ignore cancellation errors as they are usually user-triggered or double-clicks
+      const errorCode = error.code;
+      const errorMessage = error.message || "";
+      
+      const isCancellation = 
+        errorCode === 'auth/cancelled-popup-request' || 
+        errorCode === 'auth/popup-closed-by-user' ||
+        errorCode === 'auth/popup-blocked' ||
+        errorMessage.toLowerCase().includes('popup-closed-by-user') ||
+        errorMessage.toLowerCase().includes('cancelled-popup-request') ||
+        errorMessage.toLowerCase().includes('popup-blocked');
+
+      if (isCancellation) {
+        setIsSigningIn(false);
+        return;
+      }
+      
       setAuthError(error.message || "Sign in failed. Please try again.");
+    } finally {
+      setIsSigningIn(false);
     }
   };
 
@@ -170,14 +248,24 @@ function AppContent() {
           <div className="space-y-3">
             <button 
               onClick={signIn}
-              className="w-full py-4 bg-white hover:bg-slate-100 text-slate-900 rounded-xl font-bold transition-all flex items-center justify-center gap-3 shadow-lg"
+              disabled={isSigningIn}
+              className={`w-full py-4 bg-white hover:bg-slate-100 text-slate-900 rounded-xl font-bold transition-all flex items-center justify-center gap-3 shadow-lg ${isSigningIn ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
-              Sign in with Google
+              {isSigningIn ? (
+                <motion.div 
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full"
+                />
+              ) : (
+                <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
+              )}
+              {isSigningIn ? 'Signing in...' : 'Sign in with Google'}
             </button>
             <button 
               onClick={signIn}
-              className="w-full py-4 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-3"
+              disabled={isSigningIn}
+              className="w-full py-4 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <UserIcon size={20} />
               Continue as Guest

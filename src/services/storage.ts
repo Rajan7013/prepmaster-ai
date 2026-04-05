@@ -157,6 +157,7 @@ export async function saveUserProfile(uid: string, profile: any) {
     await setDoc(doc(firestore, 'users', uid), data);
   } catch (error) {
     console.error("Error saving user profile to Firestore:", error);
+    throw error; // Throw so UI can handle it
   }
 }
 
