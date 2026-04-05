@@ -58,7 +58,10 @@ export default function Profile({ user, userProfile, onUpdate, onReupload }: Pro
     try {
       const updatedProfile = {
         ...userProfile,
+        uid: user.uid,
+        email: formData.email,
         displayName: formData.displayName,
+        photoURL: user.photoURL,
         targetRole: formData.targetRole,
         targetIndustry: formData.targetIndustry,
         resumeData: {

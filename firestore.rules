@@ -14,9 +14,14 @@ service cloud.firestore {
     //   - photoURL: string (optional, url format)
     //   - jobTitle: string (optional)
     //   - experience: string (optional)
-    //   - skills: string (optional)
+    //   - skills: list (optional, array of strings)
     //   - resumeText: string (optional)
+    //   - resumeData: map (optional)
+    //   - targetRole: string (optional)
+    //   - targetIndustry: string (optional)
+    //   - createdAt: string (optional, date-time format)
     //   - updatedAt: string (required, date-time format)
+    //   - role: string (optional)
     //
     // Collection: sessions
     // Document ID: {sessionId}
@@ -73,7 +78,10 @@ service cloud.firestore {
              data.uid == request.auth.uid &&
              isValidEmail(data.email) &&
              isValidDateString(data.updatedAt) &&
-             data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'jobTitle', 'experience', 'skills', 'resumeText', 'updatedAt', 'role']);
+             (!('createdAt' in data) || isValidDateString(data.createdAt)) &&
+             (!('skills' in data) || data.skills is list) &&
+             (!('resumeData' in data) || data.resumeData is map) &&
+             data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'jobTitle', 'experience', 'skills', 'resumeText', 'resumeData', 'targetRole', 'targetIndustry', 'createdAt', 'updatedAt', 'role']);
     }
 
     function isValidSession(data) {
@@ -94,8 +102,13 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if isOwner(uid) || isAdmin();
-      allow create: if isOwner(uid) && isValidUser(request.resource.data) && (!('role' in request.resource.data) || isAdmin());
-      allow update: if isOwner(uid) && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin());
+      allow create: if isOwner(uid) && isValidUser(request.resource.data) && 
+                      (!('role' in request.resource.data) || isAdmin());
+      allow update: if isOwner(uid) && isValidUser(request.resource.data) && 
+                      ((!('role' in request.resource.data) && !('role' in resource.data)) || 
+                       (request.resource.data.get('role', null) == resource.data.get('role', null)) || 
+                       isAdmin()) &&
+                      (!('createdAt' in resource.data) || request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null));
       allow delete: if isAdmin();
     }
 

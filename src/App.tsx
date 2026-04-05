@@ -84,6 +84,7 @@ function AppContent() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [userProfile, setUserProfile] = useState<any>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const fetchProfile = async (uid: string) => {
     try {
@@ -112,12 +113,14 @@ function AppContent() {
   }, []);
 
   const signIn = async () => {
+    setAuthError(null);
     try {
       const result = await signInWithPopup(auth, googleProvider);
       setUser(result.user);
       fetchProfile(result.user.uid);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Sign in failed", error);
+      setAuthError(error.message || "Sign in failed. Please try again.");
     }
   };
 
@@ -156,6 +159,14 @@ function AppContent() {
           </div>
           <h1 className="text-3xl font-bold text-white mb-2">PrepMaster AI</h1>
           <p className="text-slate-400 mb-8">Master your interviews with real-time AI feedback on your voice, gestures, and content.</p>
+          
+          {authError && (
+            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3 text-red-400 text-sm text-left">
+              <AlertTriangle size={18} className="shrink-0" />
+              <p>{authError}</p>
+            </div>
+          )}
+
           <div className="space-y-3">
             <button 
               onClick={signIn}

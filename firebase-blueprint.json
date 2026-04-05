@@ -11,9 +11,14 @@
         "photoURL": { "type": "string" },
         "jobTitle": { "type": "string" },
         "experience": { "type": "string" },
-        "skills": { "type": "string" },
+        "skills": { "type": "array", "items": { "type": "string" } },
         "resumeText": { "type": "string" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "resumeData": { "type": "object" },
+        "targetRole": { "type": "string" },
+        "targetIndustry": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "role": { "type": "string" }
       },
       "required": ["uid", "email"]
     },

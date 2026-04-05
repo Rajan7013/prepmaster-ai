@@ -10,7 +10,7 @@ const ai = new GoogleGenAI({ apiKey: apiKey || "" });
 export const parseResume = async (text: string) => {
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-pro-preview",
+      model: "gemini-3.1-flash-preview",
       contents: `Extract the following details from this resume text: personal details, degree, projects, skills, certificates. Return as JSON.
       
       Resume Text:
@@ -32,7 +32,7 @@ export const parseResume = async (text: string) => {
     return JSON.parse(response.text || "{}");
   } catch (err: any) {
     if (err.message?.includes('429') || err.message?.includes('RESOURCE_EXHAUSTED')) {
-      throw new Error("You have exceeded your Gemini API quota. Please check your plan and billing details.");
+      throw new Error("Gemini API limit reached. Flash model is usually more available, but you might still hit limits if usage is very high.");
     }
     throw err;
   }
@@ -59,7 +59,7 @@ export const generateInterviewQuestions = async (
       : 'Return each question as a simple string.';
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-pro-preview",
+      model: "gemini-3.1-flash-preview",
       contents: `Based on this resume data and the target role (${role}) in ${industry}, generate 5 relevant interview questions.
       ${difficultyStr}
       ${topicStr}
@@ -88,7 +88,7 @@ export const generateInterviewQuestions = async (
     return JSON.parse(response.text || "[]");
   } catch (err: any) {
     if (err.message?.includes('429') || err.message?.includes('RESOURCE_EXHAUSTED')) {
-      throw new Error("You have exceeded your Gemini API quota. Please check your plan and billing details.");
+      throw new Error("Gemini API limit reached. Flash model is usually more available.");
     }
     throw err;
   }
@@ -97,7 +97,7 @@ export const generateInterviewQuestions = async (
 export const evaluatePractice = async (audioBase64: string, mode: string, promptText: string) => {
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-pro-preview",
+      model: "gemini-3.1-flash-preview",
       contents: [
         { text: `Evaluate the following audio recording for a ${mode} practice session.
         The user was supposed to ${mode === 'reading' ? 'read this text aloud' : 'speak on this topic'}: "${promptText}".
@@ -120,7 +120,7 @@ export const evaluatePractice = async (audioBase64: string, mode: string, prompt
     return JSON.parse(response.text || "{}");
   } catch (err: any) {
     if (err.message?.includes('429') || err.message?.includes('RESOURCE_EXHAUSTED')) {
-      throw new Error("You have exceeded your Gemini API quota. Please check your plan and billing details.");
+      throw new Error("Gemini API limit reached.");
     }
     throw err;
   }
@@ -147,7 +147,7 @@ export const analyzePerformance = async (sessionData: any, videoBase64?: string)
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-pro-preview",
+      model: "gemini-3.1-flash-preview",
       contents: { parts },
       config: {
         responseMimeType: "application/json",
@@ -186,7 +186,7 @@ export const analyzePerformance = async (sessionData: any, videoBase64?: string)
     return JSON.parse(response.text || "{}");
   } catch (err: any) {
     if (err.message?.includes('429') || err.message?.includes('RESOURCE_EXHAUSTED')) {
-      throw new Error("You have exceeded your Gemini API quota. Please check your plan and billing details.");
+      throw new Error("Gemini API limit reached.");
     }
     throw err;
   }

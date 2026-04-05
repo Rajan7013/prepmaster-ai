@@ -62,6 +62,7 @@ export default function ResumeUpload({ user, onComplete }: ResumeUploadProps) {
         uid: user.uid,
         email: user.email,
         displayName: user.displayName,
+        photoURL: user.photoURL,
         resumeText: text,
         resumeData: resumeData,
         createdAt: existingProfile.createdAt || new Date().toISOString(),
